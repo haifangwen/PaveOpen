@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaveOpen ver 1.1 — HMA Cooling Scheduler</title>
+<style>
+  :root{
+    --mat:#1A1C1F; --ground:#F2F3F1; --panel:#FFFFFF; --ink:#22262B;
+    --steel:#6A727C; --hair:#D8DAD6; --hot:#E4572E; --cool:#3D6FA5;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,Menlo,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.45}
+  header{background:var(--mat);color:#E8E9E6;padding:18px 22px}
+  header .brand{font-family:var(--mono);font-size:22px;letter-spacing:.5px}
+  header .brand b{color:#fff}
+  header .ver{color:var(--hot);font-weight:600}
+  header .sub{font-size:12.5px;color:#9AA0A8;margin-top:4px}
+  header a{color:#B9C2CC;text-decoration:none;border-bottom:1px dotted #566}
+  main{max-width:1080px;margin:0 auto;padding:20px 16px 40px;display:grid;grid-template-columns:390px 1fr;gap:20px}
+  @media(max-width:880px){main{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--hair);border-radius:6px;padding:18px 18px 20px}
+  .grp{margin-bottom:18px}
+  .grp:last-child{margin-bottom:0}
+  .grp-title{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--steel);border-bottom:1px solid var(--hair);padding-bottom:5px;margin-bottom:10px}
+  label{display:block;font-size:12.5px;color:var(--steel);margin-bottom:3px}
+  input,select{width:100%;padding:7px 8px;border:1px solid var(--hair);border-radius:4px;font-family:var(--mono);font-size:14px;color:var(--ink);background:#FBFBFA}
+  input:focus,select:focus{outline:2px solid var(--cool);outline-offset:-1px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+  .row4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+  .row:last-child,.row3:last-child,.row4:last-child{margin-bottom:0}
+  .unit{font-size:11px;color:var(--steel)}
+  .fc-head{font-family:var(--mono);font-size:11px;color:var(--steel);text-align:center}
+  /* results */
+  .result-panel{display:flex;flex-direction:column;gap:16px}
+  .headline{background:var(--panel);border:1px solid var(--hair);border-radius:6px;padding:20px 22px}
+  .headline .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--steel)}
+  .stoptime{font-family:var(--mono);font-size:56px;font-weight:700;color:var(--hot);line-height:1.05;margin:6px 0 2px}
+  .stoptime.muted{color:var(--steel);font-size:22px;font-weight:400;line-height:1.4}
+  .window{font-family:var(--mono);font-size:14px;color:var(--ink)}
+  .window b{color:var(--cool)}
+  .msg{font-size:13.5px;color:var(--ink);margin-top:8px}
+  .msg.warn{color:#8A4B00}
+  .plotwrap{background:var(--panel);border:1px solid var(--hair);border-radius:6px;padding:14px 14px 8px}
+  .plot-title{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--steel);margin:2px 0 8px 6px}
+  canvas{width:100%;display:block}
+  .note{font-size:12.5px;color:var(--steel);padding:0 4px}
+  footer{max-width:1080px;margin:0 auto;padding:0 16px 30px;font-size:12px;color:var(--steel)}
+  .expired{max-width:640px;margin:60px auto;background:var(--panel);border:1px solid var(--hair);border-radius:6px;padding:30px;text-align:center;font-family:var(--mono)}
+  .expired h2{color:var(--hot)}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><b>PaveOpen</b> <span class="ver">ver 1.1</span></div>
+  <div class="sub">Inverse HMA cooling scheduler — latest time to stop screeding for a target
+  open-to-traffic time &nbsp;·&nbsp; Washington State University &nbsp;·&nbsp;
+  <a href="mailto:Haifang_Wen@wsu.edu">Haifang_Wen@wsu.edu</a></div>
+</header>
+
+<main id="app">
+  <div class="panel" id="inputs">
+    <div class="grp">
+      <div class="grp-title">Schedule</div>
+      <div class="row">
+        <div><label>Target time open to traffic</label><input type="time" id="openTime" value="06:00"></div>
+        <div><label>Target mat temp (mid-depth) <span class="unit">°C</span></label><input type="number" id="targetC" value="64" step="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Paving date</label><input type="date" id="pdate"></div>
+        <div><label>Latitude <span class="unit">°N</span></label><input type="number" id="lat" value="45" step="0.1"></div>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="grp-title">Mix &amp; lift</div>
+      <div class="row">
+        <div><label>Delivery temperature <span class="unit">°F</span></label><input type="number" id="delivF" value="302" step="1"></div>
+        <div><label>Compacted lift thickness <span class="unit">mm</span></label><input type="number" id="thick" value="75" step="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Mix type</label>
+          <select id="mix">
+            <option value="fine">Fine (dense-graded)</option>
+            <option value="coarse">Coarse (SMA / dense coarse)</option>
+            <option value="very_coarse">Very coarse (open-graded / permeable)</option>
+          </select></div>
+        <div><label>Existing surface</label>
+          <select id="surface">
+            <option value="asphalt">Asphalt</option>
+            <option value="pcc">PCC (concrete)</option>
+            <option value="granular_dry">Granular base — dry</option>
+            <option value="granular_wet">Granular base — wet</option>
+            <option value="soil_dry">Soil — dry</option>
+            <option value="soil_wet">Soil — wet</option>
+          </select></div>
+      </div>
+      <div class="row">
+        <div><label>Avg. time elapse of 1st roller pass after screeding <span class="unit">min</span></label>
+          <input type="number" id="compaction" value="45" step="1"></div>
+        <div><label>Existing surface temp <span class="unit">°F, blank = auto</span></label>
+          <input type="number" id="baseF" placeholder="auto (48-h spin-up)" step="1"></div>
+      </div>
+    </div>
+
+    <div class="grp">
+      <div class="grp-title">Forecast (relative to opening time)</div>
+      <div class="row4">
+        <div class="fc-head">−6 h</div><div class="fc-head">−4 h</div><div class="fc-head">−2 h</div><div class="fc-head">at open</div>
+      </div>
+      <label>Air temperature <span class="unit">°F — blank entries are interpolated</span></label>
+      <div class="row4">
+        <input type="number" id="t6" step="1"><input type="number" id="t4" step="1">
+        <input type="number" id="t2" step="1"><input type="number" id="t0" step="1">
+      </div>
+      <label>Wind speed <span class="unit">mph — blank entries are interpolated</span></label>
+      <div class="row4">
+        <input type="number" id="w6" placeholder="6" step="1"><input type="number" id="w4" placeholder="6" step="1">
+        <input type="number" id="w2" placeholder="6" step="1"><input type="number" id="w0" placeholder="6" step="1">
+      </div>
+      <div class="row">
+        <div><label>Sky condition</label>
+          <select id="sky">
+            <option value="clear">Clear &amp; dry</option>
+            <option value="sunny">Sunny / hazy</option>
+            <option value="partly" selected>Partly cloudy</option>
+            <option value="mostly">Mostly cloudy</option>
+            <option value="cloudy">Overcast</option>
+          </select></div>
+        <div><label>Deep ground temp <span class="unit">°F</span></label><input type="number" id="deepF" value="59" step="1"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="result-panel">
+    <div class="headline" id="headline" aria-live="polite">
+      <div class="k">Time to stop screeding</div>
+      <div class="stoptime muted" id="stoptime">Enter the four forecast air temperatures to compute a schedule.</div>
+      <div class="window" id="window"></div>
+      <div class="msg" id="msg"></div>
+    </div>
+    <div class="plotwrap" id="plotwrap" style="display:none">
+      <div class="plot-title">Mid-depth mat temperature</div>
+      <canvas id="plot" height="340"></canvas>
+    </div>
+    <div class="note" id="advice" style="display:none">
+      Note: plan to finish 30–60 min earlier than the reported time to cover forecast error,
+      truck delays and the last rolling pass. The reported time carries no built-in margin —
+      the mid-depth temperature reaches the target exactly at the opening time.
+    </div>
+  </div>
+</main>
+
+<footer>
+  Physics follows the MnDOT PaveCool / CalCool approach (1-D transient conduction, surface
+  energy balance with Vehrencamp-type convection, sky long-wave radiation and solar gain),
+  extended with an inverse scheduler, roller-water evaporative cooling and open-graded
+  convection behavior, and calibrated against instrumented field measurements (ver&nbsp;1.1).
+</footer>
+
+<script>
+// PaveOpen ver 1.1 - physics engine (JavaScript port of paveopen.py)
+// Metric-internal: deg C, km/h, mm. UI layers convert units for display.
+
+const SIGMA = 5.670374e-8;
+const SOLAR_CONSTANT = 1367.0;
+const KELVIN = 273.15;
+
+const MATERIALS = {
+  fine:         { rho: 2350.0, k: 1.55, cp: 930.0 },
+  coarse:       { rho: 2350.0, k: 0.76, cp: 1160.0 },
+  very_coarse:  { rho: 2050.0, k: 1.05, cp: 1000.0 },
+  asphalt:      { rho: 2350.0, k: 1.12, cp: 950.0 },
+  pcc:          { rho: 2400.0, k: 2.00, cp: 900.0 },
+  granular_dry: { rho: 2150.0, k: 1.90, cp: 1900.0 },
+  granular_wet: { rho: 2200.0, k: 2.20, cp: 2100.0 },
+  soil_dry:     { rho: 1700.0, k: 0.80, cp: 900.0 },
+  soil_wet:     { rho: 1900.0, k: 1.50, cp: 1300.0 },
+};
+
+const SKY = {
+  clear:    [1.00, 0.00],
+  sunny:    [0.90, 0.10],
+  hazy:     [0.90, 0.10],
+  partly:   [0.65, 0.50],
+  mostly:   [0.40, 0.75],
+  cloudy:   [0.20, 1.00],
+  overcast: [0.20, 1.00],
+};
+
+const ASPHALT_SOLAR_ABSORPTIVITY = 0.92;
+const OPEN_TEXTURE_CONV = 1.35;
+const ROLL_EVAP_FLUX = 850.0;
+const ROLL_EVAP_EXTRA_MIN = 30.0;
+const ROLL_EVAP_TSURF = 60.0;
+const VERY_COARSE_CONV = 1.68;
+const ASPHALT_EMISSIVITY = 0.90;
+const ATM_TRANSMISSION = 0.81;
+
+// ---------------------------------------------------------------- Environment
+function makeEnvironment(opts) {
+  // opts: openHour, forecast[4] C, windForecast[4] km/h, sky, latitude, dayOfYear
+  const env = Object.assign({ latitude: 45.0, dayOfYear: 182 }, opts);
+
+  env.interp = function (vals, clockHour) {
+    const dt = clockHour - env.openHour;
+    const knots = [-6.0, -4.0, -2.0, 0.0];
+    if (dt <= knots[0]) return vals[0];
+    if (dt >= knots[3]) return vals[3];
+    for (let i = 0; i < 3; i++) {
+      if (knots[i] <= dt && dt <= knots[i + 1]) {
+        const f = (dt - knots[i]) / (knots[i + 1] - knots[i]);
+        return vals[i] + f * (vals[i + 1] - vals[i]);
+      }
+    }
+    return vals[3];
+  };
+  env.airTemp = (clockHour) => env.interp(env.forecast, clockHour);
+  env.windKmh = (clockHour) => env.interp(env.windForecast, clockHour);
+
+  env.solarFlux = function (clockHour) {
+    const mult = SKY[env.sky][0];
+    const lat = (env.latitude * Math.PI) / 180.0;
+    const decl = ((23.45 * Math.PI) / 180.0) *
+      Math.sin((2 * Math.PI * (284 + env.dayOfYear)) / 365.0);
+    const hourAngle = ((15.0 * ((((clockHour % 24.0) + 24.0) % 24.0) - 12.0)) * Math.PI) / 180.0;
+    const sinAlt = Math.sin(lat) * Math.sin(decl) +
+      Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle);
+    if (sinAlt <= 0.0) return 0.0;
+    const airMass = 1.0 / Math.max(sinAlt, 0.05);
+    const beam = SOLAR_CONSTANT * Math.pow(ATM_TRANSMISSION, airMass) * sinAlt;
+    const diffuse = Math.max(0.0, 0.271 * SOLAR_CONSTANT * sinAlt - 0.294 * beam);
+    return ASPHALT_SOLAR_ABSORPTIVITY * mult * (beam + diffuse);
+  };
+
+  env.skyEmissivity = function () {
+    const cloud = SKY[env.sky][1];
+    return 0.85 + 0.10 * cloud;
+  };
+
+  env.hConvection = function (TsurfC, TairC, clockHour) {
+    const U = env.windKmh(clockHour) / 3.6;
+    const Ts = TsurfC + KELVIN, Ta = TairC + KELVIN;
+    const Tavg = 0.5 * (Ts + Ta);
+    return 698.24 * (0.00144 * Math.pow(Tavg, 0.3) * Math.pow(U, 0.7) +
+                     0.00097 * Math.pow(Math.abs(Ts - Ta), 0.3));
+  };
+  return env;
+}
+
+// ---------------------------------------------------------------- Cooling model
+function makeCoolingModel(opts) {
+  // opts: env, liftMm, deliveryC, mix, surface, baseTempC (null=auto),
+  //       deepTempC, compactionMin
+  const m = Object.assign(
+    { mix: "fine", surface: "asphalt", baseTempC: null, deepTempC: 15.0,
+      baseDepthM: 0.60, compactionMin: 45.0 }, opts);
+
+  m.convFactor = function (tSec) {
+    const tc = m.compactionMin * 60.0;
+    let f;
+    if (tc <= 0 || tSec >= tc) f = 1.0;
+    else f = OPEN_TEXTURE_CONV - (OPEN_TEXTURE_CONV - 1.0) * (tSec / tc);
+    if (m.mix === "very_coarse") f = Math.max(f, VERY_COARSE_CONV);
+    return f;
+  };
+
+  m.spinUpBase = function (startClock, nBase, dxBase, base) {
+    const env = m.env;
+    let T = new Array(nBase).fill(m.deepTempC);
+    const rc = base.rho * base.cp;
+    const dt = Math.min(0.4 * rc * dxBase * dxBase / base.k, 60.0);
+    const epsSky = env.skyEmissivity();
+    const spinH = 48.0;
+    let t = 0.0;
+    while (t <= spinH * 3600.0) {
+      const clock = startClock - spinH + t / 3600.0;
+      const Ta = env.airTemp(clock);
+      const Ts = T[0];
+      const h = env.hConvection(Ts, Ta, clock);
+      const qConv = h * (Ts - Ta);
+      const qRad = ASPHALT_EMISSIVITY * SIGMA * Math.pow(Ts + KELVIN, 4) -
+        ASPHALT_EMISSIVITY * epsSky * SIGMA * Math.pow(Ta + KELVIN, 4);
+      const qSurf = env.solarFlux(clock) - qConv - qRad;
+      const Tn = T.slice();
+      Tn[0] = T[0] + dt * (qSurf + base.k * (T[1] - T[0]) / dxBase) / (rc * dxBase);
+      for (let i = 1; i < nBase - 1; i++) {
+        const qUp = base.k * (T[i - 1] - T[i]) / dxBase;
+        const qDn = base.k * (T[i + 1] - T[i]) / dxBase;
+        Tn[i] = T[i] + dt * (qUp + qDn) / (rc * dxBase);
+      }
+      const ib = nBase - 1;
+      const qUp = base.k * (T[ib - 1] - T[ib]) / dxBase;
+      const qDn = base.k * (m.deepTempC - T[ib]) / (0.5 * dxBase);
+      Tn[ib] = T[ib] + dt * (qUp + qDn) / (rc * dxBase);
+      T = Tn;
+      t += dt;
+    }
+    return T;
+  };
+
+  m.simulate = function (startClock, durationH, recordEveryMin) {
+    if (recordEveryMin === undefined) recordEveryMin = 5.0;
+    const env = m.env;
+    const L = m.liftMm / 1000.0;
+    const mix = MATERIALS[m.mix];
+    const base = MATERIALS[m.surface];
+
+    const nLift = Math.max(10, Math.round(L / 0.005));
+    const dx = L / nLift;
+    const nBase = Math.round(m.baseDepthM / Math.max(dx, 0.02));
+    const dxBase = m.baseDepthM / nBase;
+
+    const n = nLift + nBase;
+    let T = new Array(nLift).fill(m.deliveryC);
+    if (m.baseTempC !== null && m.baseTempC !== undefined) {
+      const Tb0 = m.baseTempC;
+      for (let i = 0; i < nBase; i++) {
+        const z = (i + 0.5) / nBase;
+        T.push(Tb0 + (m.deepTempC - Tb0) * z);
+      }
+    } else {
+      T = T.concat(m.spinUpBase(startClock, nBase, dxBase, base));
+    }
+
+    const rhoCp = [], kcond = [], dz = [];
+    for (let i = 0; i < nLift; i++) { rhoCp.push(mix.rho * mix.cp); kcond.push(mix.k); dz.push(dx); }
+    for (let i = 0; i < nBase; i++) { rhoCp.push(base.rho * base.cp); kcond.push(base.k); dz.push(dxBase); }
+
+    let dt = Infinity;
+    for (let i = 0; i < n; i++) dt = Math.min(dt, 0.4 * rhoCp[i] * dz[i] * dz[i] / kcond[i]);
+    dt = Math.min(dt, 5.0);
+
+    const epsP = ASPHALT_EMISSIVITY;
+    const epsSky = env.skyEmissivity();
+
+    let t = 0.0;
+    const tEnd = durationH * 3600.0;
+    const recDt = recordEveryMin * 60.0;
+    let nextRec = 0.0;
+    const times = [], means = [], mids = [], surfs = [];
+
+    const interfaceK = (i, j) =>
+      (dz[i] + dz[j]) / (dz[i] / kcond[i] + dz[j] / kcond[j]);
+
+    while (t <= tEnd + 1e-9) {
+      const clock = startClock + t / 3600.0;
+      const Ta = env.airTemp(clock);
+
+      if (t >= nextRec - 1e-9) {
+        let s = 0.0;
+        for (let i = 0; i < nLift; i++) s += T[i];
+        times.push(t / 3600.0);
+        means.push(s / nLift);
+        mids.push(T[Math.floor(nLift / 2)]);
+        surfs.push(T[0]);
+        nextRec += recDt;
+      }
+
+      const Ts = T[0];
+      const h = env.hConvection(Ts, Ta, clock) * m.convFactor(t);
+      const qConv = h * (Ts - Ta);
+      const qRad = epsP * SIGMA * Math.pow(Ts + KELVIN, 4) -
+        epsP * epsSky * SIGMA * Math.pow(Ta + KELVIN, 4);
+      const qSol = env.solarFlux(clock);
+      let qEvap = 0.0;
+      if (t < (m.compactionMin + ROLL_EVAP_EXTRA_MIN) * 60.0 &&
+          m.compactionMin > 0.0 && Ts > ROLL_EVAP_TSURF) {
+        qEvap = ROLL_EVAP_FLUX;
+      }
+      const qSurf = qSol - qConv - qRad - qEvap;
+
+      const Tnew = T.slice();
+      let kif = interfaceK(0, 1);
+      const qBelow = kif * (T[1] - T[0]) / (0.5 * (dz[0] + dz[1]));
+      Tnew[0] = T[0] + dt * (qSurf + qBelow) / (rhoCp[0] * dz[0]);
+      for (let i = 1; i < n - 1; i++) {
+        const kUp = interfaceK(i - 1, i);
+        const kDn = interfaceK(i, i + 1);
+        const qUp = kUp * (T[i - 1] - T[i]) / (0.5 * (dz[i - 1] + dz[i]));
+        const qDn = kDn * (T[i + 1] - T[i]) / (0.5 * (dz[i] + dz[i + 1]));
+        Tnew[i] = T[i] + dt * (qUp + qDn) / (rhoCp[i] * dz[i]);
+      }
+      const ib = n - 1;
+      const kUp = interfaceK(ib - 1, ib);
+      const qUp = kUp * (T[ib - 1] - T[ib]) / (0.5 * (dz[ib - 1] + dz[ib]));
+      const qDn = kcond[ib] * (m.deepTempC - T[ib]) / (0.5 * dz[ib]);
+      Tnew[ib] = T[ib] + dt * (qUp + qDn) / (rhoCp[ib] * dz[ib]);
+
+      T = Tnew;
+      t += dt;
+    }
+    return { times, means, mids, surfs };
+  };
+
+  return m;
+}
+
+// ---------------------------------------------------------------- Scheduler
+// Returns { status: "ok", finishClock, leadH }
+//      or { status: "ambient", firstCrossClock, reheatH }
+//      or { status: "infeasible" }
+function latestFinishTime(model, targetC, searchBackH, tolMin) {
+  if (searchBackH === undefined) searchBackH = 18.0;
+  if (tolMin === undefined) tolMin = 2.0;
+  const openClock = model.env.openHour;
+
+  function cooled(leadH) {
+    if (leadH <= 0.0) return false;
+    const r = model.simulate(openClock - leadH, leadH, 2.0);
+    return r.mids[r.mids.length - 1] <= targetC;
+  }
+
+  const step = 0.25;
+  let lo = 0.0, hi = null;
+  let lead = step;
+  while (lead <= searchBackH + 1e-9) {
+    if (cooled(lead)) { hi = lead; break; }
+    lo = lead;
+    lead += step;
+  }
+  if (hi === null) return { status: "infeasible" };
+  while ((hi - lo) * 60.0 > tolMin) {
+    const mid = 0.5 * (lo + hi);
+    if (cooled(mid)) hi = mid; else lo = mid;
+  }
+
+  const r = model.simulate(openClock - hi, hi, 2.0);
+  let firstCross = null;
+  for (let i = 1; i < r.mids.length; i++) {
+    if (r.mids[i - 1] > targetC && targetC >= r.mids[i]) {
+      firstCross = r.times[i - 1] + (r.mids[i - 1] - targetC) /
+        (r.mids[i - 1] - r.mids[i]) * (r.times[i] - r.times[i - 1]);
+      break;
+    }
+  }
+  if (firstCross !== null && (hi - firstCross) * 60.0 > 30.0) {
+    return {
+      status: "ambient",
+      firstCrossClock: ((openClock - hi + firstCross) % 24.0 + 24.0) % 24.0,
+      reheatH: hi - firstCross,
+    };
+  }
+  return { status: "ok", finishClock: ((openClock - hi) % 24.0 + 24.0) % 24.0, leadH: hi };
+}
+
+// expose to the app script explicitly (robust even if scripts get wrapped)
+(typeof globalThis !== "undefined" ? globalThis : window).makeEnvironment = makeEnvironment;
+(typeof globalThis !== "undefined" ? globalThis : window).makeCoolingModel = makeCoolingModel;
+(typeof globalThis !== "undefined" ? globalThis : window).latestFinishTime = latestFinishTime;
+
+</script>
+<script>
+(function(){
+  "use strict";
+  // ---- expiration -------------------------------------------------------
+  if (new Date() > new Date(2028, 0, 31, 23, 59, 59)) {
+    document.getElementById("app").outerHTML =
+      '<div class="expired"><h2>PaveOpen ver 1.1 has expired</h2>' +
+      '<p>PaveOpen ver 1.1 expired at the end of January 2028 and can no longer run.</p>' +
+      '<p>Contact: <a href="mailto:Haifang_Wen@wsu.edu">Haifang_Wen@wsu.edu</a> for an updated version.</p></div>';
+    return;
+  }
+
+  const $ = (id) => document.getElementById(id);
+  const F2C = (f) => (f - 32) * 5 / 9;
+  const C2F = (c) => c * 9 / 5 + 32;
+  const MPH2KMH = 1.609344;
+
+  // today as default paving date
+  (function(){
+    const d = new Date();
+    $("pdate").value = d.getFullYear() + "-" +
+      String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  })();
+
+  function fmtClock(hours){
+    hours = ((hours % 24) + 24) % 24;
+    let h = Math.floor(hours);
+    let m = Math.round((hours - h) * 60);
+    if (m === 60){ h = (h + 1) % 24; m = 0; }
+    const suffix = h < 12 ? "AM" : "PM";
+    let h12 = h % 12; if (h12 === 0) h12 = 12;
+    return h12 + ":" + String(m).padStart(2,"0") + " " + suffix;
+  }
+
+  function dayOfYear(dateStr){
+    const p = dateStr.split("-").map(Number);
+    if (p.length !== 3 || p.some(isNaN)) return 182;
+    const d = new Date(p[0], p[1]-1, p[2]);
+    const start = new Date(p[0], 0, 1);
+    return Math.round((d - start) / 86400000) + 1;
+  }
+
+  // Blank forecast entries interpolate between nearest filled neighbors;
+  // leading/trailing blanks copy the nearest filled value.
+  function fillBlanks(vals){
+    const filled = vals.map(v => (v === "" || v === null || isNaN(v)) ? null : Number(v));
+    const idx = filled.map((v,i)=> v===null ? -1 : i).filter(i=>i>=0);
+    if (idx.length === 0) return null;
+    const out = filled.slice();
+    for (let i = 0; i < out.length; i++){
+      if (out[i] !== null) continue;
+      let lo = -1, hi = -1;
+      for (const j of idx){ if (j < i) lo = j; if (j > i && hi < 0) hi = j; }
+      if (lo < 0) out[i] = out[hi];
+      else if (hi < 0) out[i] = out[lo];
+      else out[i] = out[lo] + (out[hi]-out[lo]) * (i-lo)/(hi-lo);
+    }
+    return out;
+  }
+
+  function gather(){
+    const tRaw = [$("t6").value, $("t4").value, $("t2").value, $("t0").value];
+    const tempsF = fillBlanks(tRaw);
+    if (tempsF === null) return { incomplete: true };
+    let windsMph = fillBlanks([$("w6").value, $("w4").value, $("w2").value, $("w0").value]);
+    if (windsMph === null) windsMph = [6,6,6,6];
+
+    const openParts = ($("openTime").value || "06:00").split(":").map(Number);
+    const openHour = openParts[0] + openParts[1]/60;
+
+    const baseRaw = $("baseF").value;
+    return {
+      incomplete: false,
+      openHour,
+      targetC: Number($("targetC").value || 64),
+      deliveryC: F2C(Number($("delivF").value || 302)),
+      forecast: tempsF.map(F2C),
+      windForecast: windsMph.map(w => w * MPH2KMH),
+      sky: $("sky").value,
+      latitude: Number($("lat").value || 45),
+      dayOfYear: dayOfYear($("pdate").value),
+      liftMm: Math.max(10, Number($("thick").value || 75)),
+      mix: $("mix").value,
+      surface: $("surface").value,
+      compactionMin: Math.max(0, Number($("compaction").value || 0)),
+      baseTempC: baseRaw === "" ? null : F2C(Number(baseRaw)),
+      deepTempC: F2C(Number($("deepF").value || 59)),
+    };
+  }
+
+  // ---- plot -------------------------------------------------------------
+  function drawPlot(finishClock, leadH, targetC, model){
+    const wrap = $("plotwrap");
+    wrap.style.display = "";
+    const canvas = $("plot");
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = wrap.clientWidth - 28;
+    const cssH = 340;
+    canvas.style.width = cssW + "px"; canvas.style.height = cssH + "px";
+    canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0,0,cssW,cssH);
+
+    const r = model.simulate(finishClock, leadH, 2.0);
+    const midsF = r.mids.map(C2F);
+    const targetF = C2F(targetC);
+
+    const padL = 52, padR = 16, padT = 14, padB = 34;
+    const W = cssW - padL - padR, H = cssH - padT - padB;
+    const tMax = leadH;
+    let yMin = Math.min(targetF, Math.min.apply(null, midsF)) - 10;
+    let yMax = Math.max.apply(null, midsF) + 10;
+    const X = (t) => padL + (t / tMax) * W;
+    const Y = (f) => padT + (1 - (f - yMin) / (yMax - yMin)) * H;
+
+    // grid + y labels
+    ctx.font = "11px ui-monospace, Consolas, monospace";
+    ctx.fillStyle = "#6A727C"; ctx.strokeStyle = "#ECEDEA"; ctx.lineWidth = 1;
+    const yStep = (yMax - yMin) > 160 ? 50 : 25;
+    for (let f = Math.ceil(yMin/yStep)*yStep; f <= yMax; f += yStep){
+      ctx.beginPath(); ctx.moveTo(padL, Y(f)); ctx.lineTo(padL+W, Y(f)); ctx.stroke();
+      ctx.textAlign = "right"; ctx.fillText(f + "°F", padL - 6, Y(f) + 3.5);
+    }
+    // x labels: clock times
+    const hStep = tMax > 8 ? 2 : 1;
+    ctx.textAlign = "center";
+    for (let t = 0; t <= tMax + 1e-9; t += hStep){
+      ctx.beginPath(); ctx.strokeStyle = "#ECEDEA";
+      ctx.moveTo(X(t), padT); ctx.lineTo(X(t), padT+H); ctx.stroke();
+      ctx.fillText(fmtClock(finishClock + t), X(t), padT + H + 16);
+    }
+
+    // target line
+    ctx.strokeStyle = "#6A727C"; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.moveTo(padL, Y(targetF)); ctx.lineTo(padL+W, Y(targetF)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.textAlign = "left"; ctx.fillStyle = "#6A727C";
+    ctx.fillText("target " + targetC + "°C (" + Math.round(targetF) + "°F)", padL + 6, Y(targetF) - 5);
+
+    // temperature-mapped curve: hot orange -> cooled blue
+    const hot = [228,87,46], cool = [61,111,165];
+    const tLo = Math.min.apply(null, midsF), tHi = Math.max.apply(null, midsF);
+    const colAt = (f) => {
+      const u = tHi > tLo ? (f - tLo)/(tHi - tLo) : 0;
+      const c = cool.map((cv,i)=> Math.round(cv + (hot[i]-cv)*u));
+      return "rgb(" + c.join(",") + ")";
+    };
+    ctx.lineWidth = 2.5; ctx.lineCap = "round";
+    for (let i = 1; i < r.times.length; i++){
+      ctx.strokeStyle = colAt(0.5*(midsF[i-1]+midsF[i]));
+      ctx.beginPath();
+      ctx.moveTo(X(r.times[i-1]), Y(midsF[i-1]));
+      ctx.lineTo(X(r.times[i]), Y(midsF[i]));
+      ctx.stroke();
+    }
+    // end markers
+    ctx.fillStyle = "#E4572E";
+    ctx.beginPath(); ctx.arc(X(0), Y(midsF[0]), 4, 0, 7); ctx.fill();
+    ctx.textAlign = "left";
+    ctx.fillText("stop screeding", X(0) + 8, Y(midsF[0]) + 4);
+    ctx.fillStyle = "#3D6FA5";
+    ctx.beginPath(); ctx.arc(X(tMax), Y(midsF[midsF.length-1]), 4, 0, 7); ctx.fill();
+    ctx.textAlign = "right";
+    ctx.fillText("open to traffic", X(tMax) - 8, Y(midsF[midsF.length-1]) - 8);
+  }
+
+  // ---- compute ----------------------------------------------------------
+  let timer = null;
+  function schedule(){ clearTimeout(timer); timer = setTimeout(compute, 250); }
+
+  function compute(){
+    const st = $("stoptime"), win = $("window"), msg = $("msg");
+    const cfg = gather();
+    if (cfg.incomplete){
+      st.className = "stoptime muted";
+      st.textContent = "Enter the four forecast air temperatures to compute a schedule.";
+      win.textContent = ""; msg.textContent = "";
+      $("plotwrap").style.display = "none"; $("advice").style.display = "none";
+      return;
+    }
+    st.className = "stoptime muted"; st.textContent = "Computing…";
+    win.textContent = ""; msg.textContent = "";
+    setTimeout(function(){
+      const env = makeEnvironment({ openHour: cfg.openHour, forecast: cfg.forecast,
+        windForecast: cfg.windForecast, sky: cfg.sky, latitude: cfg.latitude,
+        dayOfYear: cfg.dayOfYear });
+      const model = makeCoolingModel({ env, liftMm: cfg.liftMm, deliveryC: cfg.deliveryC,
+        mix: cfg.mix, surface: cfg.surface, baseTempC: cfg.baseTempC,
+        deepTempC: cfg.deepTempC, compactionMin: cfg.compactionMin });
+      const res = latestFinishTime(model, cfg.targetC, 18.0);
+
+      if (res.status === "ok"){
+        st.className = "stoptime"; st.textContent = fmtClock(res.finishClock);
+        const mins = Math.round(res.leadH * 60);
+        win.innerHTML = "Cooling window <b>" + res.leadH.toFixed(1) + " h</b> (" + mins +
+          " min) before opening at <b>" + fmtClock(cfg.openHour) + "</b> — mid-depth reaches " +
+          cfg.targetC + "\u00B0C exactly at the opening time.";
+        msg.textContent = "";
+        drawPlot(res.finishClock, res.leadH, cfg.targetC, model);
+        $("advice").style.display = "";
+      } else if (res.status === "ambient"){
+        st.className = "stoptime muted";
+        st.textContent = "Opening limited by solar-heated pavement, not by mat cooling.";
+        win.textContent = "";
+        msg.className = "msg warn";
+        msg.textContent = "The mat first reaches " + cfg.targetC + "\u00B0C at " +
+          fmtClock(res.firstCrossClock) + ", then the sun re-heats it back to the target at the " +
+          "opening time. Under this forecast the pavement itself sits at the target at the " +
+          "opening time, so no screeding stop time controls the outcome. Open earlier (before " +
+          "peak sun), open later (evening), or use a warmer target temperature.";
+        $("plotwrap").style.display = "none"; $("advice").style.display = "none";
+      } else {
+        st.className = "stoptime muted";
+        st.textContent = "Not feasible within 18 h before opening.";
+        win.textContent = "";
+        msg.className = "msg warn";
+        msg.textContent = "Reduce lift thickness, lower the delivery temperature, use a warmer " +
+          "target, or move the opening time later.";
+        $("plotwrap").style.display = "none"; $("advice").style.display = "none";
+      }
+    }, 20);
+  }
+
+  document.querySelectorAll("#inputs input, #inputs select").forEach(function(el){
+    el.addEventListener("input", schedule);
+    el.addEventListener("change", schedule);
+  });
+  window.addEventListener("resize", function(){ schedule(); });
+  compute();
+})();
+</script>
+</body>
+</html>
