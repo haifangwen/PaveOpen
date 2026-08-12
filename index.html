@@ -56,7 +56,7 @@
 <body>
 <header>
   <div class="brand"><b>PaveOpen</b> <span class="ver">ver 1.1</span></div>
-  <div class="sub">Inverse HMA cooling scheduler — latest time to stop screeding for a target
+  <div class="sub">Inverse HMA Open scheduler — latest time to stop screeding for a target
   open-to-traffic time &nbsp;·&nbsp; Washington State University &nbsp;·&nbsp;
   <a href="mailto:Haifang_Wen@wsu.edu">Haifang_Wen@wsu.edu</a></div>
 </header>
@@ -79,7 +79,7 @@
       <div class="grp-title">Mix &amp; lift</div>
       <div class="row">
         <div><label>Delivery temperature <span class="unit">°F</span></label><input type="number" id="delivF" value="302" step="1"></div>
-        <div><label>Compacted lift thickness <span class="unit">mm</span></label><input type="number" id="thick" value="75" step="1"></div>
+        <div><label>Compacted lift thickness <span class="unit">in</span></label><input type="number" id="thick" value="3" step="0.25"></div>
       </div>
       <div class="row">
         <div><label>Mix type</label>
@@ -109,7 +109,7 @@
     <div class="grp">
       <div class="grp-title">Forecast (relative to opening time)</div>
       <div class="row4">
-        <div class="fc-head">−6 h</div><div class="fc-head">−4 h</div><div class="fc-head">−2 h</div><div class="fc-head">at open</div>
+        <div class="fc-head" id="fcH0"></div><div class="fc-head" id="fcH1"></div><div class="fc-head" id="fcH2"></div><div class="fc-head" id="fcH3"></div>
       </div>
       <label>Air temperature <span class="unit">°F — blank entries are interpolated</span></label>
       <div class="row4">
@@ -121,17 +121,14 @@
         <input type="number" id="w6" placeholder="6" step="1"><input type="number" id="w4" placeholder="6" step="1">
         <input type="number" id="w2" placeholder="6" step="1"><input type="number" id="w0" placeholder="6" step="1">
       </div>
-      <div class="row">
-        <div><label>Sky condition</label>
-          <select id="sky">
-            <option value="clear">Clear &amp; dry</option>
-            <option value="sunny">Sunny / hazy</option>
-            <option value="partly" selected>Partly cloudy</option>
-            <option value="mostly">Mostly cloudy</option>
-            <option value="cloudy">Overcast</option>
-          </select></div>
-        <div><label>Deep ground temp <span class="unit">°F</span></label><input type="number" id="deepF" value="59" step="1"></div>
-      </div>
+      <div><label>Sky condition</label>
+        <select id="sky">
+          <option value="clear">Clear &amp; dry</option>
+          <option value="sunny">Sunny / hazy</option>
+          <option value="partly" selected>Partly cloudy</option>
+          <option value="mostly">Mostly cloudy</option>
+          <option value="cloudy">Overcast</option>
+        </select></div>
     </div>
   </div>
 
@@ -153,13 +150,6 @@
     </div>
   </div>
 </main>
-
-<footer>
-  Physics follows the MnDOT PaveCool / CalCool approach (1-D transient conduction, surface
-  energy balance with Vehrencamp-type convection, sky long-wave radiation and solar gain),
-  extended with an inverse scheduler, roller-water evaporative cooling and open-graded
-  convection behavior, and calibrated against instrumented field measurements (ver&nbsp;1.1).
-</footer>
 
 <script>
 // PaveOpen ver 1.1 - physics engine (JavaScript port of paveopen.py)
@@ -447,7 +437,6 @@ function latestFinishTime(model, targetC, searchBackH, tolMin) {
   return { status: "ok", finishClock: ((openClock - hi) % 24.0 + 24.0) % 24.0, leadH: hi };
 }
 
-// expose to the app script explicitly (robust even if scripts get wrapped)
 (typeof globalThis !== "undefined" ? globalThis : window).makeEnvironment = makeEnvironment;
 (typeof globalThis !== "undefined" ? globalThis : window).makeCoolingModel = makeCoolingModel;
 (typeof globalThis !== "undefined" ? globalThis : window).latestFinishTime = latestFinishTime;
@@ -534,12 +523,12 @@ function latestFinishTime(model, targetC, searchBackH, tolMin) {
       sky: $("sky").value,
       latitude: Number($("lat").value || 45),
       dayOfYear: dayOfYear($("pdate").value),
-      liftMm: Math.max(10, Number($("thick").value || 75)),
+      liftMm: Math.max(10, Number($("thick").value || 3) * 25.4),
       mix: $("mix").value,
       surface: $("surface").value,
       compactionMin: Math.max(0, Number($("compaction").value || 0)),
       baseTempC: baseRaw === "" ? null : F2C(Number(baseRaw)),
-      deepTempC: F2C(Number($("deepF").value || 59)),
+      deepTempC: 15.0,
     };
   }
 
@@ -676,6 +665,18 @@ function latestFinishTime(model, targetC, searchBackH, tolMin) {
       }
     }, 20);
   }
+
+  function updateFcHeads(){
+    const p = ($("openTime").value || "06:00").split(":").map(Number);
+    const open = p[0] + p[1]/60;
+    const offs = [-6, -4, -2, 0];
+    for (let i = 0; i < 4; i++){
+      $("fcH" + i).textContent = fmtClock(open + offs[i]) + (i === 3 ? " (open)" : "");
+    }
+  }
+  $("openTime").addEventListener("input", updateFcHeads);
+  $("openTime").addEventListener("change", updateFcHeads);
+  updateFcHeads();
 
   document.querySelectorAll("#inputs input, #inputs select").forEach(function(el){
     el.addEventListener("input", schedule);
