@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PaveOpen ver 1.1 — HMA Cooling Scheduler</title>
+<title>PaveOpen ver 1.2 — HMA Open Scheduler</title>
 <style>
   :root{
     --mat:#1A1C1F; --ground:#F2F3F1; --panel:#FFFFFF; --ink:#22262B;
@@ -55,7 +55,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><b>PaveOpen</b> <span class="ver">ver 1.1</span></div>
+  <div class="brand"><b>PaveOpen</b> <span class="ver">ver 1.2</span></div>
   <div class="sub">Inverse HMA Open scheduler — latest time to stop screeding for a target
   open-to-traffic time &nbsp;·&nbsp; Washington State University &nbsp;·&nbsp;
   <a href="mailto:Haifang_Wen@wsu.edu">Haifang_Wen@wsu.edu</a></div>
@@ -160,13 +160,13 @@ const SOLAR_CONSTANT = 1367.0;
 const KELVIN = 273.15;
 
 const MATERIALS = {
-  fine:         { rho: 2350.0, k: 1.55, cp: 930.0 },
-  coarse:       { rho: 2350.0, k: 0.76, cp: 1160.0 },
+  fine:         { rho: 2350.0, k: 1.55, cp: 960.0 },
+  coarse:       { rho: 2350.0, k: 1.23, cp: 950.0 },
   very_coarse:  { rho: 2050.0, k: 1.05, cp: 1000.0 },
-  asphalt:      { rho: 2350.0, k: 1.12, cp: 950.0 },
+  asphalt:      { rho: 2350.0, k: 1.05, cp: 990.0 },
   pcc:          { rho: 2400.0, k: 2.00, cp: 900.0 },
-  granular_dry: { rho: 2150.0, k: 1.90, cp: 1900.0 },
-  granular_wet: { rho: 2200.0, k: 2.20, cp: 2100.0 },
+  granular_dry: { rho: 2150.0, k: 3.20, cp: 2250.0 },
+  granular_wet: { rho: 2200.0, k: 3.40, cp: 2400.0 },
   soil_dry:     { rho: 1700.0, k: 0.80, cp: 900.0 },
   soil_wet:     { rho: 1900.0, k: 1.50, cp: 1300.0 },
 };
@@ -181,14 +181,24 @@ const SKY = {
   overcast: [0.20, 1.00],
 };
 
-const ASPHALT_SOLAR_ABSORPTIVITY = 0.92;
-const OPEN_TEXTURE_CONV = 1.35;
-const ROLL_EVAP_FLUX = 850.0;
+const ASPHALT_SOLAR_ABSORPTIVITY = 0.925;
+const OPEN_TEXTURE_CONV = 2.0;
+const ROLL_EVAP_FLUX = 200.0;
 const ROLL_EVAP_EXTRA_MIN = 30.0;
 const ROLL_EVAP_TSURF = 60.0;
 const VERY_COARSE_CONV = 1.68;
 const ASPHALT_EMISSIVITY = 0.90;
 const ATM_TRANSMISSION = 0.81;
+
+
+// --- calibration setter hooks (no effect unless called) ---
+let _EVAP = ROLL_EVAP_FLUX, _OTC = OPEN_TEXTURE_CONV,
+    _ABSORB = ASPHALT_SOLAR_ABSORPTIVITY, _EPS0 = 0.855, _NOON = 12.7;
+function setEvap(v){ _EVAP = v; }
+function setOTC(v){ _OTC = v; }
+function setAbsorb(v){ _ABSORB = v; }
+function setEps0(v){ _EPS0 = v; }
+function setNoon(v){ _NOON = v; }
 
 // ---------------------------------------------------------------- Environment
 function makeEnvironment(opts) {
@@ -216,19 +226,19 @@ function makeEnvironment(opts) {
     const lat = (env.latitude * Math.PI) / 180.0;
     const decl = ((23.45 * Math.PI) / 180.0) *
       Math.sin((2 * Math.PI * (284 + env.dayOfYear)) / 365.0);
-    const hourAngle = ((15.0 * ((((clockHour % 24.0) + 24.0) % 24.0) - 12.0)) * Math.PI) / 180.0;
+    const hourAngle = ((15.0 * ((((clockHour % 24.0) + 24.0) % 24.0) - _NOON)) * Math.PI) / 180.0;
     const sinAlt = Math.sin(lat) * Math.sin(decl) +
       Math.cos(lat) * Math.cos(decl) * Math.cos(hourAngle);
     if (sinAlt <= 0.0) return 0.0;
     const airMass = 1.0 / Math.max(sinAlt, 0.05);
     const beam = SOLAR_CONSTANT * Math.pow(ATM_TRANSMISSION, airMass) * sinAlt;
     const diffuse = Math.max(0.0, 0.271 * SOLAR_CONSTANT * sinAlt - 0.294 * beam);
-    return ASPHALT_SOLAR_ABSORPTIVITY * mult * (beam + diffuse);
+    return _ABSORB * mult * (beam + diffuse);
   };
 
   env.skyEmissivity = function () {
     const cloud = SKY[env.sky][1];
-    return 0.85 + 0.10 * cloud;
+    return Math.min(0.97, _EPS0 + 0.10 * cloud);
   };
 
   env.hConvection = function (TsurfC, TairC, clockHour) {
@@ -253,7 +263,7 @@ function makeCoolingModel(opts) {
     const tc = m.compactionMin * 60.0;
     let f;
     if (tc <= 0 || tSec >= tc) f = 1.0;
-    else f = OPEN_TEXTURE_CONV - (OPEN_TEXTURE_CONV - 1.0) * (tSec / tc);
+    else f = _OTC - (_OTC - 1.0) * (tSec / tc);
     if (m.mix === "very_coarse") f = Math.max(f, VERY_COARSE_CONV);
     return f;
   };
@@ -359,7 +369,7 @@ function makeCoolingModel(opts) {
       let qEvap = 0.0;
       if (t < (m.compactionMin + ROLL_EVAP_EXTRA_MIN) * 60.0 &&
           m.compactionMin > 0.0 && Ts > ROLL_EVAP_TSURF) {
-        qEvap = ROLL_EVAP_FLUX;
+        qEvap = _EVAP;
       }
       const qSurf = qSol - qConv - qRad - qEvap;
 
@@ -448,8 +458,8 @@ function latestFinishTime(model, targetC, searchBackH, tolMin) {
   // ---- expiration -------------------------------------------------------
   if (new Date() > new Date(2028, 0, 31, 23, 59, 59)) {
     document.getElementById("app").outerHTML =
-      '<div class="expired"><h2>PaveOpen ver 1.1 has expired</h2>' +
-      '<p>PaveOpen ver 1.1 expired at the end of January 2028 and can no longer run.</p>' +
+      '<div class="expired"><h2>PaveOpen ver 1.2 has expired</h2>' +
+      '<p>PaveOpen ver 1.2 expired at the end of January 2028 and can no longer run.</p>' +
       '<p>Contact: <a href="mailto:Haifang_Wen@wsu.edu">Haifang_Wen@wsu.edu</a> for an updated version.</p></div>';
     return;
   }
